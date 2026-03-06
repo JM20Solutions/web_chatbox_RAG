@@ -1,3 +1,37 @@
+<!--
+╔══════════════════════════════════════════════════════════════════╗
+║  UNIVERSAL MULTITENANT CHAT WIDGET                              ║
+║  Pulls all tenant config (colors, logo, prompt) from n8n       ║
+║                                                                  ║
+║  HOW TO EMBED ON ANY TENANT WEBSITE:                            ║
+║  Just paste this ONE line before </body>:                        ║
+║                                                                  ║
+║  <script src="https://yourdomain.com/chat-widget.js"           ║
+║          data-tenant="barts-automotive"                          ║
+║          data-config-url="https://n8n.sellsy.ai/webhook/config" ║
+║  ></script>                                                      ║
+║                                                                  ║
+║  That's it. Everything else is pulled from your Google Sheet.    ║
+║                                                                  ║
+║  ── GOOGLE SHEET COLUMNS NEEDED ──                              ║
+║  A: tenant_id        → "barts-automotive"                       ║
+║  B: business_name    → "Bart's Automotive"                      ║
+║  C: primary_color    → "#2563eb"                                ║
+║  D: accent_color     → "#1d4ed8"                                ║
+║  E: logo_url         → "https://example.com/logo.png"          ║
+║  F: welcome_message  → "Hi! How can we help?"                  ║
+║  G: system_prompt    → "You are a support agent for..."        ║
+║  H: webhook_url      → "https://n8n.sellsy.ai/webhook/chat"   ║
+║  I: online_text      → "Typically replies instantly"            ║
+║                                                                  ║
+║  ── N8N WORKFLOWS NEEDED ──                                     ║
+║  1. CONFIG WEBHOOK: receives { tenant_id }, looks up the row    ║
+║     in Google Sheets, returns the full config JSON.             ║
+║  2. CHAT WEBHOOK: receives { message, identifier, systemPrompt}║
+║     routes to AI Agent, returns the response.                   ║
+║     (You already have this one built!)                           ║
+╚══════════════════════════════════════════════════════════════════╝
+-->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -392,7 +426,7 @@
   //  data attributes. For this standalone HTML demo,
   //  set them here:
   // ═══════════════════════════════════════════════════════
-  const TENANT_ID  = "JM20";
+  const TENANT_ID  = "jm20";
   const CONFIG_URL = "https://gpixie.app.n8n.cloud/webhook-test/customer-support";  // n8n config webhook
   // ═══════════════════════════════════════════════════════
   //  In production, your embed snippet looks like:
