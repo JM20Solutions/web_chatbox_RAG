@@ -1,6 +1,6 @@
 // ─── CONFIG ────────────────────────────────────────────────────────────────
 // TODO: Replace with your n8n webhook URL
-const N8N_WEBHOOK_URL = 'YOUR_N8N_WEBHOOK_URL_HERE';
+const N8N_WEBHOOK_URL = 'https://gpixie.app.n8n.cloud/webhook/3c0cbaf5-6283-4ec7-b806-b1bca58b7852';
 // ───────────────────────────────────────────────────────────────────────────
 
 const widget      = document.getElementById('chatWidget');
