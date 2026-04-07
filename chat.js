@@ -1,5 +1,4 @@
 // ─── CONFIG ─────────────────────────────────────────────────────────────────
-// TODO: Replace with your n8n webhook URL
 const N8N_WEBHOOK_URL = 'https://gpixie.app.n8n.cloud/webhook-test/3c0cbaf5-6283-4ec7-b806-b1bca58b7852';
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -145,7 +144,6 @@ function parseN8nResponse(raw) {
     item.response ||
     item.answer   ||
     item.content  ||
-    // Nested: { message: { content: "..." } }
     (item.message && typeof item.message === 'object' ? item.message.content : null) ||
     (typeof item.message === 'string' ? item.message : null) ||
     JSON.stringify(item)
