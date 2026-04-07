@@ -1,5 +1,6 @@
 // ─── CONFIG ─────────────────────────────────────────────────────────────────
-const N8N_WEBHOOK_URL = 'https://gpixie.app.n8n.cloud/webhook/3c0cbaf5-6283-4ec7-b806-b1bca58b7852';
+// Use the PRODUCTION webhook URL (not webhook-test) and ensure workflow is activated in n8n
+const N8N_WEBHOOK_URL = 'https://gpixie.app.n8n.cloud/webhook-test/3c0cbaf5-6283-4ec7-b806-b1bca58b7852';
 // ────────────────────────────────────────────────────────────────────────────
 
 const widget      = document.getElementById('chatWidget');
@@ -85,16 +86,24 @@ async function dispatchMessage(text) {
   scrollToBottom();
 
   try {
+    console.log('[Chat] Sending to:', N8N_WEBHOOK_URL);
+
     const res = await fetch(N8N_WEBHOOK_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: text, timestamp: new Date().toISOString() })
     });
 
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    console.log('[Chat] Response status:', res.status, res.statusText);
 
-    // Read raw text first — n8n can return JSON or plain text
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      console.error('[Chat] HTTP error body:', errBody);
+      throw new Error(`HTTP ${res.status}: ${errBody || res.statusText}`);
+    }
+
     const raw = await res.text();
+    console.log('[Chat] Raw response:', raw);
     const reply = parseN8nResponse(raw);
 
     removeTyping(typingId);
@@ -102,8 +111,17 @@ async function dispatchMessage(text) {
 
   } catch (err) {
     removeTyping(typingId);
-    appendMessage('assistant', 'Unable to reach the assistant right now. Please try again in a moment.', true);
-    console.error('[Chat] Fetch error:', err);
+
+    // Detect CORS/network failure vs HTTP error
+    const isCors = err instanceof TypeError && err.message.toLowerCase().includes('failed to fetch');
+    const userMsg = isCors
+      ? 'Connection blocked (CORS). Check that your n8n workflow is activated and allows cross-origin requests.'
+      : 'Unable to reach the assistant right now. Please try again in a moment.';
+
+    appendMessage('assistant', userMsg, true);
+    console.error('[Chat] Error type:', err.constructor.name);
+    console.error('[Chat] Error message:', err.message);
+    console.error('[Chat] Full error:', err);
   } finally {
     isThinking = false;
     scrollToBottom();
@@ -125,18 +143,15 @@ function parseN8nResponse(raw) {
   try {
     data = JSON.parse(text);
   } catch {
-    // Not JSON — treat as plain text
     return text;
   }
 
-  // Unwrap array (n8n often wraps in [ ])
   const item = Array.isArray(data) ? data[0] : data;
 
   if (!item || typeof item !== 'object') {
     return typeof item === 'string' ? item : 'No response received.';
   }
 
-  // Common field names
   return (
     item.output   ||
     item.text     ||
