@@ -1,7 +1,7 @@
-// ─── CONFIG ────────────────────────────────────────────────────────────────
+// ─── CONFIG ─────────────────────────────────────────────────────────────────
 // TODO: Replace with your n8n webhook URL
-const N8N_WEBHOOK_URL = 'https://gpixie.app.n8n.cloud/webhook/3c0cbaf5-6283-4ec7-b806-b1bca58b7852';
-// ───────────────────────────────────────────────────────────────────────────
+const N8N_WEBHOOK_URL = 'YOUR_N8N_WEBHOOK_URL_HERE';
+// ────────────────────────────────────────────────────────────────────────────
 
 const widget      = document.getElementById('chatWidget');
 const messages    = document.getElementById('chatMessages');
@@ -13,13 +13,14 @@ const suggestions = document.getElementById('chatSuggestions');
 let isOpen     = false;
 let isThinking = false;
 
-// ─── OPEN / CLOSE ───────────────────────────────────────────────────────────
+// ─── OPEN / CLOSE ────────────────────────────────────────────────────────────
 function openChat() {
+  if (isOpen) return;
   isOpen = true;
   widget.classList.add('open');
   fabBtn.querySelector('.fab-icon-chat').classList.add('hidden');
   fabBtn.querySelector('.fab-icon-close').classList.remove('hidden');
-  setTimeout(() => input.focus(), 300);
+  setTimeout(() => input.focus(), 280);
   scrollToBottom();
 }
 
@@ -30,21 +31,25 @@ function closeChat() {
   fabBtn.querySelector('.fab-icon-close').classList.add('hidden');
 }
 
-// ─── CLEAR CHAT ─────────────────────────────────────────────────────────────
+function toggleChat() {
+  isOpen ? closeChat() : openChat();
+}
+
+// ─── CLEAR CHAT ──────────────────────────────────────────────────────────────
 function clearChat() {
   messages.innerHTML = '';
   appendDivider('Today');
   appendMessage(
     'assistant',
-    '👋 Hi there! I\'m the Nexus store assistant. I can help you with product info, pricing, availability, orders, and more.<br /><br />What can I help you with today?'
+    '👋 Hi! I\'m the JM20 Agentic Solutions assistant.<br /><br />Ask me anything about our services, pricing, or how we can help your business.'
   );
-  showSuggestions();
+  suggestions.style.display = 'flex';
 }
 
 // ─── INPUT HELPERS ───────────────────────────────────────────────────────────
 function autoResize(el) {
   el.style.height = 'auto';
-  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+  el.style.height = Math.min(el.scrollHeight, 110) + 'px';
   sendBtn.disabled = el.value.trim().length === 0;
 }
 
@@ -55,31 +60,20 @@ function handleKey(e) {
   }
 }
 
-// ─── SUGGESTIONS ────────────────────────────────────────────────────────────
+// ─── SUGGESTIONS ─────────────────────────────────────────────────────────────
 function sendSuggestion(btn) {
-  const text = btn.textContent;
-  hideSuggestions();
-  dispatchMessage(text);
-}
-
-function hideSuggestions() {
   suggestions.style.display = 'none';
+  dispatchMessage(btn.textContent.trim());
 }
 
-function showSuggestions() {
-  suggestions.style.display = 'flex';
-}
-
-// ─── SEND MESSAGE ────────────────────────────────────────────────────────────
+// ─── SEND ────────────────────────────────────────────────────────────────────
 function sendMessage() {
   const text = input.value.trim();
   if (!text || isThinking) return;
-
-  hideSuggestions();
+  suggestions.style.display = 'none';
   input.value = '';
   input.style.height = 'auto';
   sendBtn.disabled = true;
-
   dispatchMessage(text);
 }
 
@@ -92,71 +86,102 @@ async function dispatchMessage(text) {
   scrollToBottom();
 
   try {
-    const response = await fetch(N8N_WEBHOOK_URL, {
+    const res = await fetch(N8N_WEBHOOK_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: text, timestamp: new Date().toISOString() })
     });
 
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-    const data = await response.json();
-
-    // n8n typically returns { output: "..." } or { message: "..." } or plain text
-    const reply =
-      data.output  ||
-      data.message ||
-      data.text    ||
-      data.reply   ||
-      data.response||
-      (typeof data === 'string' ? data : null) ||
-      'I received your message but couldn\'t parse the response.';
+    // Read raw text first — n8n can return JSON or plain text
+    const raw = await res.text();
+    const reply = parseN8nResponse(raw);
 
     removeTyping(typingId);
     appendMessage('assistant', formatReply(reply));
 
   } catch (err) {
     removeTyping(typingId);
-    appendMessage('assistant', 'Something went wrong connecting to the assistant. Please try again.', true);
-    console.error('[Chat] Error:', err);
+    appendMessage('assistant', 'Unable to reach the assistant right now. Please try again in a moment.', true);
+    console.error('[Chat] Fetch error:', err);
   } finally {
     isThinking = false;
     scrollToBottom();
   }
 }
 
+// ─── N8N RESPONSE PARSER ─────────────────────────────────────────────────────
+// Handles all common n8n output shapes:
+//   Plain text
+//   { "output": "..." }
+//   { "message": "..." }
+//   [{ "output": "..." }]          <- most common from n8n Respond to Webhook node
+//   [{ "message": { "content": "..." } }]
+function parseN8nResponse(raw) {
+  const text = raw.trim();
+  if (!text) return 'No response received.';
+
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    // Not JSON — treat as plain text
+    return text;
+  }
+
+  // Unwrap array (n8n often wraps in [ ])
+  const item = Array.isArray(data) ? data[0] : data;
+
+  if (!item || typeof item !== 'object') {
+    return typeof item === 'string' ? item : 'No response received.';
+  }
+
+  // Common field names
+  return (
+    item.output   ||
+    item.text     ||
+    item.reply    ||
+    item.response ||
+    item.answer   ||
+    item.content  ||
+    // Nested: { message: { content: "..." } }
+    (item.message && typeof item.message === 'object' ? item.message.content : null) ||
+    (typeof item.message === 'string' ? item.message : null) ||
+    JSON.stringify(item)
+  );
+}
+
 // ─── DOM HELPERS ─────────────────────────────────────────────────────────────
 function appendDivider(label) {
-  const div = document.createElement('div');
-  div.className = 'chat-date-divider';
-  div.innerHTML = `<span>${label}</span>`;
-  messages.appendChild(div);
+  const el = document.createElement('div');
+  el.className = 'chat-date-divider';
+  el.innerHTML = `<span>${label}</span>`;
+  messages.appendChild(el);
 }
 
 function appendMessage(role, html, isError = false) {
-  const now  = new Date();
-  const time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-  const wrapper = document.createElement('div');
-  wrapper.className = `msg ${role}`;
+  const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const wrap = document.createElement('div');
+  wrap.className = `msg ${role}`;
 
   if (role === 'assistant') {
-    wrapper.innerHTML = `
+    wrap.innerHTML = `
       <div class="msg-avatar">AI</div>
       <div class="msg-body">
         <div class="msg-bubble${isError ? ' error' : ''}">${html}</div>
         <div class="msg-time">${time}</div>
       </div>`;
   } else {
-    wrapper.innerHTML = `
+    wrap.innerHTML = `
       <div class="msg-body">
         <div class="msg-bubble">${html}</div>
         <div class="msg-time">${time}</div>
       </div>`;
   }
 
-  messages.appendChild(wrapper);
-  return wrapper;
+  messages.appendChild(wrap);
+  return wrap;
 }
 
 function appendTyping() {
@@ -194,7 +219,6 @@ function escapeHtml(str) {
 }
 
 function formatReply(text) {
-  // Escape, then apply basic markdown-like formatting
   return escapeHtml(String(text))
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.*?)\*/g, '<em>$1</em>')
