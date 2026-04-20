@@ -1,6 +1,5 @@
 // ─── CONFIG ─────────────────────────────────────────────────────────────────
-// Use the PRODUCTION webhook URL (not webhook-test) and ensure workflow is activated in n8n
-const N8N_WEBHOOK_URL = 'https://gpixie.app.n8n.cloud/webhook/3c0cbaf5-6283-4ec7-b806-b1bca58b7852';
+const API_URL = '/.netlify/functions/chat';
 // ────────────────────────────────────────────────────────────────────────────
 
 const widget      = document.getElementById('chatWidget');
@@ -10,8 +9,9 @@ const sendBtn     = document.getElementById('sendBtn');
 const fabBtn      = document.getElementById('fabBtn');
 const suggestions = document.getElementById('chatSuggestions');
 
-let isOpen     = false;
-let isThinking = false;
+let isOpen      = false;
+let isThinking  = false;
+let chatHistory = []; // keeps conversation context for multi-turn
 
 // ─── OPEN / CLOSE ────────────────────────────────────────────────────────────
 function openChat() {
@@ -38,6 +38,7 @@ function toggleChat() {
 // ─── CLEAR CHAT ──────────────────────────────────────────────────────────────
 function clearChat() {
   messages.innerHTML = '';
+  chatHistory = [];
   appendDivider('Today');
   appendMessage(
     'assistant',
@@ -81,88 +82,75 @@ async function dispatchMessage(text) {
   appendMessage('user', escapeHtml(text));
   scrollToBottom();
 
+  // Add to history before sending
+  chatHistory.push({ role: 'user', content: text });
+
   isThinking = true;
   const typingId = appendTyping();
   scrollToBottom();
 
   try {
-    console.log('[Chat] Sending to:', N8N_WEBHOOK_URL);
-
-    const res = await fetch(N8N_WEBHOOK_URL, {
+    const res = await fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text, timestamp: new Date().toISOString() })
+      body: JSON.stringify({
+        message: text,
+        history: chatHistory.slice(0, -1), // all but the last user msg
+      })
     });
 
-    console.log('[Chat] Response status:', res.status, res.statusText);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => '');
-      console.error('[Chat] HTTP error body:', errBody);
-      throw new Error(`HTTP ${res.status}: ${errBody || res.statusText}`);
-    }
+    const data = await res.json();
+    const { reply, showBookingForm } = data;
 
-    const raw = await res.text();
-    console.log('[Chat] Raw response:', raw);
-    const reply = parseN8nResponse(raw);
+    // Add assistant reply to history
+    chatHistory.push({ role: 'assistant', content: reply });
 
     removeTyping(typingId);
-    appendMessage('assistant', formatReply(reply));
+    const msgEl = appendMessage('assistant', formatReply(reply));
+
+    // If booking intent — embed Tally form inline
+    if (showBookingForm) {
+      appendTallyForm(msgEl);
+    }
 
   } catch (err) {
     removeTyping(typingId);
-
-    // Detect CORS/network failure vs HTTP error
-    const isCors = err instanceof TypeError && err.message.toLowerCase().includes('failed to fetch');
-    const userMsg = isCors
-      ? 'Connection blocked (CORS). Check that your n8n workflow is activated and allows cross-origin requests.'
-      : 'Unable to reach the assistant right now. Please try again in a moment.';
-
-    appendMessage('assistant', userMsg, true);
-    console.error('[Chat] Error type:', err.constructor.name);
-    console.error('[Chat] Error message:', err.message);
-    console.error('[Chat] Full error:', err);
+    appendMessage(
+      'assistant',
+      'Unable to reach the assistant right now. Please try again or email us at hello@jm20.com.',
+      true
+    );
+    console.error('[Chat] Error:', err);
   } finally {
     isThinking = false;
     scrollToBottom();
   }
 }
 
-// ─── N8N RESPONSE PARSER ─────────────────────────────────────────────────────
-// Handles all common n8n output shapes:
-//   Plain text
-//   { "output": "..." }
-//   { "message": "..." }
-//   [{ "output": "..." }]          <- most common from n8n Respond to Webhook node
-//   [{ "message": { "content": "..." } }]
-function parseN8nResponse(raw) {
-  const text = raw.trim();
-  if (!text) return 'No response received.';
-
-  let data;
+// ─── TALLY EMBED ─────────────────────────────────────────────────────────────
+async function appendTallyForm(msgEl) {
   try {
-    data = JSON.parse(text);
-  } catch {
-    return text;
+    // Fetch the Tally URL from our config endpoint
+    const res = await fetch('/.netlify/functions/config');
+    const { tallyUrl } = await res.json();
+
+    if (!tallyUrl || tallyUrl.includes('YOUR_FORM_ID')) return;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'msg-tally';
+    wrap.innerHTML = `<iframe src="${tallyUrl}" title="Book a Discovery Call" allowfullscreen></iframe>`;
+
+    // Insert after the message body
+    const body = msgEl.querySelector('.msg-body');
+    if (body) body.appendChild(wrap);
+    else msgEl.appendChild(wrap);
+
+    setTimeout(scrollToBottom, 100);
+  } catch (e) {
+    console.warn('[Chat] Could not load Tally form:', e);
   }
-
-  const item = Array.isArray(data) ? data[0] : data;
-
-  if (!item || typeof item !== 'object') {
-    return typeof item === 'string' ? item : 'No response received.';
-  }
-
-  return (
-    item.output   ||
-    item.text     ||
-    item.reply    ||
-    item.response ||
-    item.answer   ||
-    item.content  ||
-    (item.message && typeof item.message === 'object' ? item.message.content : null) ||
-    (typeof item.message === 'string' ? item.message : null) ||
-    JSON.stringify(item)
-  );
 }
 
 // ─── DOM HELPERS ─────────────────────────────────────────────────────────────
